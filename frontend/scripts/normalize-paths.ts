@@ -1,7 +1,7 @@
 import { readdir, readFile, writeFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-const appDir = join(import.meta.dir, "../app");
+const appDir = join((import.meta as any).dir || process.cwd(), "../app");
 
 async function processDir(dir: string) {
   const entries = await readdir(dir);
