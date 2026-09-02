@@ -1,0 +1,21 @@
+{
+  "name": "acad-control-backend",
+  "version": "5.3.0",
+  "description": "ACAD Supervisory Control Plane API Server",
+  "main": "src/server.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/server.ts",
+    "start": "bun src/server.ts",
+    "seed": "bun -e \"import { seedControlPlane } from './src/database/seed'; seedControlPlane();\"",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "postgres": "^3.4.4"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^20.11.24",
+    "typescript": "^5.3.3"
+  }
+}

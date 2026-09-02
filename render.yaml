@@ -1,0 +1,49 @@
+# ==============================================================================
+# ACAD SUPERVISORY CONTROL PLANE - RENDER BLUEPRINT
+# ==============================================================================
+# Deploys the private ACAD-CONTROL backend API and managed PostgreSQL database.
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. ACAD Control Backend API (Bun Web Service)
+  # ----------------------------------------------------------------------------
+  - type: web
+    name: acad-control-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: starter
+    region: frankfurt # Low-latency EU/Africa routing
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 8002
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: CORS_ORIGIN
+        sync: false # Set to your Vercel frontend URL (e.g. https://control.acad.ng or https://acad-control.vercel.app)
+      - key: CONTROL_JWT_SECRET
+        generateValue: true # Render will generate a cryptographic 256-bit random secret
+      - key: CONTROL_ADMIN_EMAIL
+        value: owner@acad.ng
+      - key: CONTROL_ADMIN_PASSWORD
+        generateValue: true # Render will generate a random secure initial root admin password
+      - key: DATABASE_URL
+        fromDatabase:
+          name: acad-control-postgres
+          property: connectionString
+
+databases:
+  # ----------------------------------------------------------------------------
+  # 2. ACAD Control Managed PostgreSQL Database
+  # ----------------------------------------------------------------------------
+  - name: acad-control-postgres
+    plan: starter
+    region: frankfurt
+    databaseName: acad_control
+    user: acad_admin
+    postgresMajorVersion: "16"
