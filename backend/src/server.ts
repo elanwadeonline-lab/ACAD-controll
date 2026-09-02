@@ -67,12 +67,14 @@ export async function handleControlPlaneApi(req: Request, url: URL): Promise<Res
   // ── HEALTH & STATUS ENDPOINTS ───────────────────────────────────────────────
   // ════════════════════════════════════════════════════════════════════════════
 
-  if ((pathname === "/health" || pathname === "/api/health") && method === "GET") {
+  if ((pathname === "/" || pathname === "/health" || pathname === "/api/health") && method === "GET") {
     return apiJson({
       status: "ok",
       timestamp: new Date().toISOString(),
       version: "5.3.0",
       service: "acad-control-api",
+      message: "ACAD Supervisory Control Plane API is online and operational.",
+      health: "/health",
     });
   }
 
