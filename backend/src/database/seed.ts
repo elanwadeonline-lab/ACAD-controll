@@ -10,21 +10,43 @@ import { hashPassword } from "../auth/auth";
 export async function seedControlPlane(): Promise<void> {
   initializeControlPlaneSchema();
 
-  // 1. Seed Default Platform Operators if not exists
-  const defaultEmail = Bun.env.CONTROL_ADMIN_EMAIL || "owner@acad.ng";
+  // 1. Seed or Synchronize Platform Operators
+  const defaultEmail = (Bun.env.CONTROL_ADMIN_EMAIL || "owner@acad.ng").toLowerCase().trim();
   const defaultPassword = Bun.env.CONTROL_ADMIN_PASSWORD || "AdminPassword123!";
+  const passwordHash = await hashPassword(defaultPassword);
 
-  if (!userRepository.findByEmail(defaultEmail)) {
-    const passwordHash = await hashPassword(defaultPassword);
+  const existingConfigured = userRepository.findByEmail(defaultEmail);
+  if (!existingConfigured) {
     userRepository.create("ACAD Platform Owner", defaultEmail, passwordHash, "owner");
+    console.log(`[Seed] Created admin owner: ${defaultEmail}`);
+  } else {
+    userRepository.updatePassword(existingConfigured.id, passwordHash);
+    console.log(`[Seed] Synchronized admin password for: ${defaultEmail}`);
   }
-  if (!userRepository.findByEmail("ops@acad.ng")) {
-    const passwordHash = await hashPassword(defaultPassword);
+
+  // Also ensure owner@acad.ng always exists with active password
+  if (defaultEmail !== "owner@acad.ng") {
+    const existingOwner = userRepository.findByEmail("owner@acad.ng");
+    if (!existingOwner) {
+      userRepository.create("ACAD Default Owner", "owner@acad.ng", passwordHash, "owner");
+    } else {
+      userRepository.updatePassword(existingOwner.id, passwordHash);
+    }
+  }
+
+  // Ensure other operator roles have synced password as well
+  const opsUser = userRepository.findByEmail("ops@acad.ng");
+  if (!opsUser) {
     userRepository.create("Chief Systems Engineer", "ops@acad.ng", passwordHash, "ops_engineer");
+  } else {
+    userRepository.updatePassword(opsUser.id, passwordHash);
   }
-  if (!userRepository.findByEmail("support@acad.ng")) {
-    const passwordHash = await hashPassword(defaultPassword);
+
+  const supportUser = userRepository.findByEmail("support@acad.ng");
+  if (!supportUser) {
     userRepository.create("Customer Success Lead", "support@acad.ng", passwordHash, "support_agent");
+  } else {
+    userRepository.updatePassword(supportUser.id, passwordHash);
   }
 
   // 2. Ensure Initial Software Release Record exists

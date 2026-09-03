@@ -45,4 +45,8 @@ export const userRepository = {
   updateRole(id: number, role: PlatformRole): void {
     controlDb.prepare("UPDATE platform_users SET role = ? WHERE id = ?").run(role, id);
   },
+
+  updatePassword(id: number, passwordHash: string): void {
+    controlDb.prepare("UPDATE platform_users SET password_hash = ? WHERE id = ?").run(passwordHash, id);
+  },
 };
