@@ -11,8 +11,17 @@ export async function seedControlPlane(): Promise<void> {
   initializeControlPlaneSchema();
 
   // 1. Seed or Synchronize Platform Operators
-  const defaultEmail = (Bun.env.CONTROL_ADMIN_EMAIL || "owner@acad.ng").toLowerCase().trim();
-  const defaultPassword = Bun.env.CONTROL_ADMIN_PASSWORD || "AdminPassword123!";
+  const defaultEmail = (
+    Bun.env.CONTROL_ADMIN_EMAIL ||
+    Bun.env.ADMIN_EMAIL ||
+    Bun.env.CONTROL_EMAIL ||
+    "owner@acad.ng"
+  ).toLowerCase().trim();
+  const defaultPassword =
+    Bun.env.CONTROL_ADMIN_PASSWORD ||
+    Bun.env.CONTROL_PASSWORD ||
+    Bun.env.ADMIN_PASSWORD ||
+    "AdminPassword123!";
   const passwordHash = await hashPassword(defaultPassword);
 
   const existingConfigured = userRepository.findByEmail(defaultEmail);
