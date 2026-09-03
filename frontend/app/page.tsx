@@ -65,7 +65,7 @@ export default function ControlCommandCenterPage() {
         setOverview(overviewRes);
         if (overviewRes.localExamPool) setLocalExamPool(overviewRes.localExamPool);
       }
-      if (schoolsRes) setSchools(schoolsRes.schools || schoolsRes.data || []);
+      if (schoolsRes) setSchools(Array.isArray(schoolsRes) ? schoolsRes : schoolsRes.schools || schoolsRes.data || []);
       else if (!overviewRes) setSchools([]);
       if (timelineRes?.timeline) setTimeline(timelineRes.timeline);
       if (localPoolRes) setLocalExamPool(localPoolRes);
@@ -99,7 +99,7 @@ export default function ControlCommandCenterPage() {
           if (ov.localExamPool) setLocalExamPool(ov.localExamPool);
         }
         // Also refresh schools/timeline periodically when polling
-        controlApi.getSchools().then((r) => setSchools(r.schools || [])).catch(() => {});
+        controlApi.getSchools().then((r) => setSchools(Array.isArray(r) ? r : r.schools || [])).catch(() => {});
         controlApi.getFleetTimeline(24).then((r) => { if (r?.timeline) setTimeline(r.timeline); }).catch(() => {});
         controlApi.getLocalExamPoolLive().then((r) => setLocalExamPool(r)).catch(() => {});
         return ov as any;

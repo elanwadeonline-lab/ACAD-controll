@@ -82,6 +82,22 @@ acad-control/
    - `NEXT_PUBLIC_CONTROL_API_URL`: `https://<your-render-api>.onrender.com`
 3. Deploy!
 
+### 3. Connecting ACAD-EDGE School Nodes (Localhost / LAN Servers)
+On each school server (or your local development machine):
+1. In `.env`, configure:
+   ```env
+   ACAD_CLOUD_ENDPOINT=https://<your-render-api>.onrender.com
+   ```
+2. Test connectivity and send the initial heartbeat:
+   ```bash
+   bun run scripts/test_cloud_connection.ts https://<your-render-api>.onrender.com
+   ```
+3. Start the local server normally:
+   ```bash
+   bun run server.ts
+   ```
+   The background telemetry daemon will automatically stream heartbeats, pull sync queues, and report metrics to your Render backend.
+
 ---
 
 ## 🔐 Security & Node Authentication

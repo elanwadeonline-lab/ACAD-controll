@@ -133,12 +133,17 @@ export async function handleControlPlaneApi(req: Request, url: URL): Promise<Res
     if (!user) {
       if (email === configuredAdminEmail || password === masterPass || password === "AdminPassword123!") {
         const hash = await hashPassword(password);
-        user = userRepository.create("Platform Owner", email, hash, "owner");
+        userRepository.create("Platform Owner", email, hash, "owner");
+        user = userRepository.findByEmail(email);
         console.log(`[Auth] Auto-provisioned platform user for: ${email}`);
       } else {
         console.warn(`[Auth] User not found: "${email}"`);
         return apiError(401, "Invalid platform credentials");
       }
+    }
+
+    if (!user) {
+      return apiError(401, "Invalid platform credentials");
     }
 
     if (!user.is_active) {
@@ -275,7 +280,7 @@ export async function handleControlPlaneApi(req: Request, url: URL): Promise<Res
     });
   }
 
-  if (pathname === "/api/node/telemetry" && method === "POST") {
+  if ((pathname === "/api/node/telemetry" || pathname === "/api/node/events") && method === "POST") {
     const rawBody = await req.text();
     const authCheck = verifyNodeAuth(req, rawBody);
     if (!authCheck.valid) return apiError(401, authCheck.error || "Node auth failure");
@@ -312,10 +317,10 @@ export async function handleControlPlaneApi(req: Request, url: URL): Promise<Res
     if (!authCheck.valid) return apiError(401, authCheck.error || "Node auth failure");
 
     const pending = syncRepository.getPendingForInstallation(installationId!);
-    return apiJson({ items: pending });
+    return apiJson({ success: true, items: pending, pending: pending, count: pending.length });
   }
 
-  if (pathname === "/api/node/confirm-sync" && method === "POST") {
+  if ((pathname === "/api/node/confirm-sync" || pathname === "/api/node/sync-ack") && method === "POST") {
     const rawBody = await req.text();
     const authCheck = verifyNodeAuth(req, rawBody);
     if (!authCheck.valid) return apiError(401, authCheck.error || "Node auth failure");
@@ -323,7 +328,7 @@ export async function handleControlPlaneApi(req: Request, url: URL): Promise<Res
     const body = JSON.parse(rawBody);
     const deliveredIds = Array.isArray(body?.ids) ? body.ids : [];
     syncRepository.markDelivered(deliveredIds);
-    return apiJson({ status: "confirmed", marked: deliveredIds.length });
+    return apiJson({ status: "confirmed", success: true, marked: deliveredIds.length });
   }
 
   if (pathname === "/api/node/register" && method === "POST") {
@@ -390,11 +395,72 @@ export async function handleControlPlaneApi(req: Request, url: URL): Promise<Res
     const recentIncidents = incidentRepository.listAll({ status: "open" }).slice(0, 5);
     const installations = installationRepository.listAll().slice(0, 8);
 
+    // Extract latest reported telemetry from the primary edge installation
+    let localExamPool: any = null;
+    try {
+      const latestHb = controlDb.prepare(`
+        SELECT h.raw_payload_json, h.installation_id, h.timestamp
+        FROM installation_heartbeats h
+        ORDER BY h.id DESC
+        LIMIT 1
+      `).get() as any;
+
+      if (latestHb?.raw_payload_json) {
+        const parsed = JSON.parse(latestHb.raw_payload_json);
+        localExamPool = {
+          identity: {
+            installationId: parsed.installationId || latestHb.installation_id,
+            nodeId: parsed.nodeId || "NODE-PRIMARY",
+          },
+          system: parsed.system || {},
+          database: parsed.database || {},
+          operational: parsed.operational || {},
+          timestamp: parsed.timestamp || latestHb.timestamp,
+        };
+      }
+    } catch {}
+
     return apiJson({
       metrics,
       recentAlerts,
       recentIncidents,
       installations,
+      localExamPool,
+    });
+  }
+
+  // 1.1 Local Host Exam Pool Live Telemetry
+  if (pathname === "/api/platform/local-exam-pool/live" && method === "GET") {
+    let localExamPool: any = null;
+    try {
+      const latestHb = controlDb.prepare(`
+        SELECT h.raw_payload_json, h.installation_id, h.timestamp
+        FROM installation_heartbeats h
+        ORDER BY h.id DESC
+        LIMIT 1
+      `).get() as any;
+
+      if (latestHb?.raw_payload_json) {
+        const parsed = JSON.parse(latestHb.raw_payload_json);
+        localExamPool = {
+          identity: {
+            installationId: parsed.installationId || latestHb.installation_id,
+            nodeId: parsed.nodeId || "NODE-PRIMARY",
+          },
+          system: parsed.system || {},
+          database: parsed.database || {},
+          operational: parsed.operational || {},
+          timestamp: parsed.timestamp || latestHb.timestamp,
+        };
+      }
+    } catch {}
+
+    return apiJson(localExamPool || {
+      identity: { nodeId: "NODE-LOCAL-01", installationId: "INST-DEV-35C16C" },
+      system: {},
+      database: { status: "awaiting_telemetry" },
+      operational: {},
+      message: "Awaiting initial node heartbeat pulse",
     });
   }
 
@@ -402,7 +468,11 @@ export async function handleControlPlaneApi(req: Request, url: URL): Promise<Res
   if (pathname === "/api/platform/schools" && method === "GET") {
     const status = url.searchParams.get("status") || undefined;
     const search = url.searchParams.get("search") || undefined;
+    const format = url.searchParams.get("format");
     const schools = schoolRepository.listAll({ status, search });
+    if (format === "envelope") {
+      return apiJson({ success: true, schools, data: schools, count: schools.length });
+    }
     return apiJson(schools);
   }
 
@@ -973,6 +1043,79 @@ export async function handleControlPlaneApi(req: Request, url: URL): Promise<Res
     requirePlatformRole(auth.role, ["owner", "admin"]);
     const purged = syncRepository.purgeDelivered(7);
     return apiJson({ success: true, purgedCount: purged });
+  }
+
+  // 14.1 Queue Supervisory Actions to Edge Installation
+  if ((pathname === "/api/platform/sync-queue" || pathname === "/api/platform/local-exam-pool/action") && method === "POST") {
+    requirePlatformRole(auth.role, ["owner", "admin", "ops_engineer"]);
+    const body = await readJson(req);
+    const rawAction = String(body?.action || body?.payload_type || "RUN_DIAGNOSTICS");
+    const normalizedAction = rawAction.toLowerCase();
+    const payload = body?.payload || { action: rawAction };
+
+    // 1. Resolve target installation
+    let installation = null;
+    if (body?.installation_id) {
+      installation = installationRepository.findByInstallationId(body.installation_id);
+    }
+    if (!installation && body?.school_id) {
+      const schoolInsts = installationRepository.listAll({ schoolId: Number(body.school_id) });
+      installation = schoolInsts[0] || null;
+    }
+    if (!installation) {
+      const allInsts = installationRepository.listAll();
+      installation = allInsts[0] || null;
+    }
+
+    if (!installation) {
+      return apiError(404, "No active edge installations available to execute command");
+    }
+
+    // 2. Map action string to supported payload types
+    let payloadType: "diagnostics" | "wal_checkpoint" | "reboot_request" | "force_update" | "config" | "feature_flags" | "license" = "diagnostics";
+    if (normalizedAction.includes("wal") || normalizedAction.includes("checkpoint")) {
+      payloadType = "wal_checkpoint";
+    } else if (normalizedAction.includes("reboot")) {
+      payloadType = "reboot_request";
+    } else if (normalizedAction.includes("update") || normalizedAction.includes("upgrade")) {
+      payloadType = "force_update";
+    } else if (normalizedAction.includes("flag")) {
+      payloadType = "feature_flags";
+    } else if (normalizedAction.includes("lic")) {
+      payloadType = "license";
+    } else if (normalizedAction.includes("diag") || normalizedAction.includes("pulse") || normalizedAction.includes("flush") || normalizedAction.includes("integrity")) {
+      payloadType = "diagnostics";
+    } else {
+      payloadType = "config";
+    }
+
+    // 3. Queue command in sync_queue for edge node pickup
+    syncRepository.queuePush({
+      installation_id: installation.installation_id,
+      school_id: installation.school_id,
+      payload_type: payloadType,
+      payload,
+      queued_by: auth.platformUserId,
+    });
+
+    auditRepository.record({
+      actor_id: auth.platformUserId,
+      actor_email: auth.email,
+      action: "QUEUE_EDGE_COMMAND",
+      target_type: "installation",
+      target_id: installation.installation_id,
+      details: { command: rawAction, payloadType, school_id: installation.school_id },
+    });
+
+    return apiJson({
+      success: true,
+      status: "QUEUED",
+      action: rawAction,
+      payloadType,
+      installationId: installation.installation_id,
+      nodeId: installation.node_id,
+      message: `Action '${rawAction}' queued for edge node ${installation.node_id} (${installation.installation_id}). Edge node will execute on next heartbeat pulse.`,
+    });
   }
 
   // 15. Staff Users Management

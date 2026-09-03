@@ -1,5 +1,14 @@
 import { controlDb } from "../client";
 
+export type SyncPayloadType =
+  | "feature_flags"
+  | "license"
+  | "config"
+  | "force_update"
+  | "reboot_request"
+  | "diagnostics"
+  | "wal_checkpoint";
+
 /**
  * Bidirectional Sync Queue Repository
  * Manages cloud → node config push delivery payloads.
@@ -12,7 +21,7 @@ export const syncRepository = {
   queuePush(params: {
     installation_id: string;
     school_id: number;
-    payload_type: "feature_flags" | "license" | "config" | "force_update" | "reboot_request" | "diagnostics";
+    payload_type: SyncPayloadType;
     payload: Record<string, any>;
     queued_by?: number;
   }): void {
@@ -36,7 +45,7 @@ export const syncRepository = {
    */
   queuePushToAllSchoolNodes(params: {
     school_id: number;
-    payload_type: "feature_flags" | "license" | "config" | "force_update" | "diagnostics" | "reboot_request";
+    payload_type: SyncPayloadType;
     payload: Record<string, any>;
     queued_by?: number;
   }): number {
@@ -73,7 +82,7 @@ export const syncRepository = {
    * Used for fleet-wide software release deployment (CI/CD).
    */
   queuePushToFleet(params: {
-    payload_type: "feature_flags" | "license" | "config" | "force_update" | "diagnostics" | "reboot_request";
+    payload_type: SyncPayloadType;
     payload: Record<string, any>;
     queued_by?: number;
   }): number {

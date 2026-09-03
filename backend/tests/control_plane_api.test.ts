@@ -103,4 +103,103 @@ describe("ACAD-CONTROL Standalone Backend API Tests", () => {
     expect(data.status).toBe("acknowledged");
     expect(data.health_status).toBe("healthy");
   });
+
+  test("5. POST /api/platform/sync-queue queues supervisory action for edge node", async () => {
+    const req = new Request(`${baseUrl}/api/platform/sync-queue`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${platformToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action: "RUN_DIAGNOSTICS",
+        installation_id: "INST-DEMO-01",
+      }),
+    });
+    const res = await handleControlPlaneApi(req, new URL(req.url));
+    expect(res?.status).toBe(200);
+    const data = (await res?.json()) as any;
+    expect(data.success).toBe(true);
+    expect(data.status).toBe("QUEUED");
+    expect(data.payloadType).toBe("diagnostics");
+  });
+
+  test("6. GET /api/node/pending-sync delivers queued actions to edge node", async () => {
+    const installationId = "INST-DEMO-01";
+    const secretKey = "node_sec_demo_secret_key_acad_01";
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = createHmac("sha256", secretKey)
+      .update(`${installationId}:${timestamp}:`)
+      .digest("hex");
+
+    const req = new Request(`${baseUrl}/api/node/pending-sync`, {
+      method: "GET",
+      headers: {
+        "X-ACAD-Installation-Id": installationId,
+        "X-ACAD-Timestamp": String(timestamp),
+        "X-ACAD-Signature": signature,
+      },
+    });
+
+    const res = await handleControlPlaneApi(req, new URL(req.url));
+    expect(res?.status).toBe(200);
+    const data = (await res?.json()) as any;
+    expect(data.success).toBe(true);
+    expect(Array.isArray(data.items)).toBe(true);
+    expect(data.items.length).toBeGreaterThan(0);
+    expect(data.items[0].payload_type).toBe("diagnostics");
+
+    // Acknowledge via /api/node/sync-ack
+    const ackBody = JSON.stringify({ ids: [data.items[0].id] });
+    const ackSig = createHmac("sha256", secretKey)
+      .update(`${installationId}:${timestamp}:${ackBody}`)
+      .digest("hex");
+
+    const ackReq = new Request(`${baseUrl}/api/node/sync-ack`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-ACAD-Installation-Id": installationId,
+        "X-ACAD-Timestamp": String(timestamp),
+        "X-ACAD-Signature": ackSig,
+      },
+      body: ackBody,
+    });
+
+    const ackRes = await handleControlPlaneApi(ackReq, new URL(ackReq.url));
+    expect(ackRes?.status).toBe(200);
+    const ackData = (await ackRes?.json()) as any;
+    expect(ackData.status).toBe("confirmed");
+  });
+
+  test("7. POST /api/node/events ingests telemetry events", async () => {
+    const installationId = "INST-DEMO-01";
+    const secretKey = "node_sec_demo_secret_key_acad_01";
+    const timestamp = Math.floor(Date.now() / 1000);
+    const rawBody = JSON.stringify({
+      events: [
+        { type: "DIAGNOSTICS_COMPLETED", severity: "info", payload: { integrity: "ok" } },
+      ],
+    });
+    const signature = createHmac("sha256", secretKey)
+      .update(`${installationId}:${timestamp}:${rawBody}`)
+      .digest("hex");
+
+    const req = new Request(`${baseUrl}/api/node/events`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-ACAD-Installation-Id": installationId,
+        "X-ACAD-Timestamp": String(timestamp),
+        "X-ACAD-Signature": signature,
+      },
+      body: rawBody,
+    });
+
+    const res = await handleControlPlaneApi(req, new URL(req.url));
+    expect(res?.status).toBe(200);
+    const data = (await res?.json()) as any;
+    expect(data.status).toBe("ingested");
+    expect(data.count).toBe(1);
+  });
 });
