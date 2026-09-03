@@ -113,6 +113,20 @@ export async function seedControlPlane(): Promise<void> {
     });
   }
 
+  // Also seed default local dev node identity so out-of-the-box local testing works immediately
+  let devInstall = installationRepository.findByInstallationId("INST-DEV-35C16C");
+  if (!devInstall) {
+    installationRepository.create({
+      school_id: school.id,
+      installation_id: "INST-DEV-35C16C",
+      node_id: "NODE-LOCAL-01",
+      secret_key_hash: "node_sec_ce5cae0c341658d52cdd57cffb3d1a6e",
+      software_version: "5.3.0",
+      agent_version: "1.0.0",
+      release_channel: "stable",
+    });
+  }
+
   // 6. Ensure active license exists
   const existingLicense = licenseRepository.findBySchoolId(school.id);
   if (!existingLicense) {
