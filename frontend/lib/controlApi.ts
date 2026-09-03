@@ -10,14 +10,21 @@ export interface PlatformUser {
   role: "owner" | "admin" | "ops_engineer" | "support_agent" | "auditor";
 }
 
-const CONTROL_API_BASE =
+const rawBase =
   (typeof process !== "undefined" && process.env.NEXT_PUBLIC_CONTROL_API_URL) || "";
+const CONTROL_API_BASE = rawBase.replace(/\/+$/, "");
 
 function resolveUrl(endpoint: string): string {
   if (endpoint.startsWith("http://") || endpoint.startsWith("https://")) {
     return endpoint;
   }
-  return `${CONTROL_API_BASE}${endpoint}`;
+  const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  if (!CONTROL_API_BASE && typeof window !== "undefined") {
+    console.warn(
+      `⚠️ [ACAD CONTROL] NEXT_PUBLIC_CONTROL_API_URL is not set! Request will hit relative path: ${cleanEndpoint}`
+    );
+  }
+  return `${CONTROL_API_BASE}${cleanEndpoint}`;
 }
 
 async function request<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
@@ -31,11 +38,19 @@ async function request<T = any>(endpoint: string, options: RequestInit = {}): Pr
   }
 
   const url = resolveUrl(endpoint);
-  const res = await fetch(url, {
-    ...options,
-    headers,
-    credentials: "include",
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...options,
+      headers,
+    });
+  } catch (err: any) {
+    const errorMsg =
+      !CONTROL_API_BASE
+        ? `API URL is not configured. Please set NEXT_PUBLIC_CONTROL_API_URL in Vercel settings and redeploy.`
+        : `Cannot connect to API at ${url}. Please verify your Render service is awake and active.`;
+    throw new Error(errorMsg);
+  }
 
   if (res.status === 401) {
     if (typeof window !== "undefined" && !window.location.pathname.includes("/login")) {

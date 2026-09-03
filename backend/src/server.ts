@@ -25,13 +25,38 @@ import { randomBytes, createHash } from "node:crypto";
 
 const CORS_ORIGIN = Bun.env.CORS_ORIGIN || "*";
 
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": CORS_ORIGIN,
-  "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, X-ACAD-Installation-Id, X-ACAD-Timestamp, X-ACAD-Signature",
-  "Access-Control-Allow-Credentials": "true",
-};
+export function getCorsHeaders(reqOrigin?: string | null): Record<string, string> {
+  const origin = reqOrigin || (CORS_ORIGIN !== "*" ? CORS_ORIGIN : "*");
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers":
+      "Content-Type, Authorization, X-ACAD-Installation-Id, X-ACAD-Timestamp, X-ACAD-Signature",
+    "Access-Control-Allow-Credentials": "true",
+    "Vary": "Origin",
+  };
+}
+
+const corsHeaders = getCorsHeaders();
+
+function applyCors(res: Response, req: Request): Response {
+  const origin = req.headers.get("origin") || "*";
+  const headers = new Headers(res.headers);
+  headers.set("Access-Control-Allow-Origin", origin);
+  headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  headers.set(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, X-ACAD-Installation-Id, X-ACAD-Timestamp, X-ACAD-Signature"
+  );
+  headers.set("Access-Control-Allow-Credentials", "true");
+  headers.set("Vary", "Origin");
+
+  return new Response(res.body, {
+    status: res.status,
+    statusText: res.statusText,
+    headers,
+  });
+}
 
 function apiJson(data: any, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(data), {
@@ -1003,14 +1028,15 @@ if (import.meta.main) {
     hostname: HOST,
     idleTimeout: 255,
     async fetch(req) {
+      const origin = req.headers.get("origin");
       if (req.method === "OPTIONS") {
-        return new Response(null, { status: 204, headers: corsHeaders });
+        return new Response(null, { status: 204, headers: getCorsHeaders(origin) });
       }
       const url = new URL(req.url);
       try {
-        const res = await handleControlPlaneApi(req, url);
-        if (res) return res;
-        return apiError(404, "Not found");
+        let res = await handleControlPlaneApi(req, url);
+        if (!res) res = apiError(404, "Not found");
+        return applyCors(res, req);
       } catch (error: any) {
         console.error(
           JSON.stringify({
@@ -1021,7 +1047,7 @@ if (import.meta.main) {
             path: url.pathname,
           })
         );
-        return apiError(500, "Internal supervisory server error");
+        return applyCors(apiError(500, "Internal supervisory server error"), req);
       }
     },
   });

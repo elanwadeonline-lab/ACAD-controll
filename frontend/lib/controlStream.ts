@@ -20,8 +20,9 @@ interface Options {
   pollingFn?: () => Promise<StreamData | null>;
 }
 
-const CONTROL_API_BASE =
+const rawBase =
   (typeof process !== "undefined" && process.env.NEXT_PUBLIC_CONTROL_API_URL) || "";
+const CONTROL_API_BASE = rawBase.replace(/\/+$/, "");
 
 /**
  * Opens a fetch-based SSE stream to /api/platform/stream.
@@ -63,7 +64,6 @@ export function subscribeControlStream(opts: Options): () => void {
       const streamUrl = `${CONTROL_API_BASE}/api/platform/stream`;
       const res = await fetch(streamUrl, {
         headers: { Authorization: `Bearer ${token}` },
-        credentials: "include",
         signal: controller.signal,
       });
       if (!res.ok || !res.body) {
